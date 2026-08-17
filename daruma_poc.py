@@ -28,8 +28,9 @@
 #
 # - `MODO_DEMO = True` → usa una respuesta de ejemplo: **0 llamadas** a la API, no necesita API key. Ideal para revisar la notebook.
 # - `MODO_DEMO = False` → llama a la API real (requiere la variable de entorno `OPENAI_API_KEY`).
-# - `GENERAR_IMAGEN_API = False` → imprime el prompt listo para pegar en **Nightcafe** (gratis, 0 llamadas).
-# - `GENERAR_IMAGEN_API = True` → genera la imagen con **GPT Image** (tiene costo).
+#
+# La API se usa **solo para el texto** (`gpt-4o-mini`). La **imagen** se genera sin API: se copia el
+# prompt en **Nightcafe** (gratis) y la imagen resultante se guarda en `salidas/` (ver sección 3).
 
 # %%
 import os
@@ -37,11 +38,9 @@ import json
 import textwrap
 
 # --- Configuración general ---
-MODELO_TEXTO = "gpt-4o-mini"        # barato y más que suficiente para esta tarea
-MODELO_IMAGEN = "gpt-image-1-mini"  # DALL·E 3 se retiró de la API el 12/05/2026; GPT Image es el reemplazo actual
+MODELO_TEXTO = "gpt-4o-mini"  # barato y más que suficiente para esta tarea (texto→texto)
 
 MODO_DEMO = True             # True = respuesta de ejemplo (0 llamadas). False = API real.
-GENERAR_IMAGEN_API = False   # False = prompt para Nightcafe (gratis). True = imagen con GPT Image (costo).
 EJECUTAR_INTERACTIVO = False # True = habilita la carga interactiva del prompt (widgets / input()).
 
 # La API key NUNCA se escribe en el código: se lee de una variable de entorno.
@@ -52,8 +51,8 @@ LLAMADAS_API = 0
 
 print("Configuración cargada.")
 print(f"  Modelo de texto : {MODELO_TEXTO}")
-print(f"  Modelo de imagen: {MODELO_IMAGEN}")
 print(f"  MODO_DEMO       : {MODO_DEMO}")
+print("  Imagen          : vía Nightcafe (sin API)")
 
 # %% [markdown]
 # ## 1. Técnicas de *fast prompting* aplicadas
@@ -310,50 +309,37 @@ print(f"  Optimizado -> {1000:>5} llamadas   (3.000 requests menos)")
 # %% [markdown]
 # ## 3. Generación de la imagen (texto→imagen)
 #
-# El prompt de imagen ya viene resuelto dentro del pack (etapa de texto). Ahora hay dos caminos:
-# - **Gratis (recomendado para probar):** copiar el prompt en **Nightcafe** → **0 llamadas** a la API.
-# - **Automático (con costo):** generar con **GPT Image** desde la misma API.
+# El prompt de imagen ya viene resuelto dentro del pack (lo produjo la etapa de texto). Para la imagen
+# **no usamos la API**: copiamos ese prompt en **Nightcafe** (gratuito), generamos el concepto y guardamos
+# la imagen en la carpeta `salidas/`. Así el texto→imagen queda sin costo y alineado con la consigna.
 
 # %%
 def paso_imagen(pack):
-    """Genera la imagen o imprime el prompt para Nightcafe, según GENERAR_IMAGEN_API."""
-    global LLAMADAS_API
+    """Imprime el prompt y el negative prompt listos para pegar en Nightcafe."""
     prompt = pack["prompt_imagen"]
     negativo = pack["negative_prompt"]
-
-    if not GENERAR_IMAGEN_API:
-        print("MODO GRATIS — pegá esto en Nightcafe (u otra herramienta gratuita):\n")
-        print("PROMPT:\n" + _envolver(prompt))
-        print("\nNEGATIVE PROMPT:\n" + _envolver(negativo))
-        print("\n(0 llamadas a la API)")
-        return None
-
-    # Camino con costo: GPT Image (reemplazo de DALL·E en la API).
-    from openai import OpenAI
-    if not API_KEY:
-        raise RuntimeError("Falta la variable de entorno OPENAI_API_KEY.")
-    client = OpenAI(api_key=API_KEY)
-    resultado = client.images.generate(
-        model=MODELO_IMAGEN,
-        prompt=f"{prompt}. Avoid: {negativo}.",  # GPT Image no tiene campo negative: se integra al prompt
-        size="1024x1024",
-        n=1,
-    )
-    LLAMADAS_API += 1
-
-    import base64
-    dato = resultado.data[0]
-    ruta = "salidas/concepto_cocina.png"
-    if getattr(dato, "b64_json", None):
-        with open(ruta, "wb") as f:
-            f.write(base64.b64decode(dato.b64_json))
-        print(f"Imagen guardada en: {ruta}")
-    else:
-        print("URL de la imagen:", getattr(dato, "url", "(sin url)"))
-    return ruta
+    print("Pegá esto en Nightcafe (u otra herramienta gratuita de texto→imagen):\n")
+    print("PROMPT:\n" + _envolver(prompt))
+    print("\nNEGATIVE PROMPT:\n" + _envolver(negativo))
+    print("\n(0 llamadas a la API — la imagen se genera fuera del código)")
 
 
-_ = paso_imagen(pack)
+paso_imagen(pack)
+
+# %% [markdown]
+# ### Imagen resultante (Nightcafe)
+# Esta es la imagen generada con el prompt de arriba. Combina en la notebook las tres piezas:
+# **código** (el pipeline), **texto** (el pack) e **imagen** (el concepto visual).
+
+# %%
+from IPython.display import Image, display
+
+RUTA_IMAGEN = "salidas/concepto_cocina_nordica.jpg"
+try:
+    display(Image(filename=RUTA_IMAGEN))
+    print("Concepto de cocina nórdica generado en Nightcafe a partir del prompt de la etapa de texto.")
+except FileNotFoundError:
+    print(f"(Colocá la imagen generada en {RUTA_IMAGEN} para verla embebida aquí.)")
 
 # %% [markdown]
 # ## 4. (Extra) Carga interactiva del prompt
@@ -400,8 +386,8 @@ else:
 # - **Seguridad y claridad:** los **delimitadores** aíslan el mensaje del cliente de las instrucciones.
 # - **Fidelidad al problema:** mantenemos la decisión clave de la Preentrega 1 —separar lo visual de lo técnico—
 #   y evitamos pedirle medidas al modelo de imagen (que no las respeta).
-# - **Adaptación al contexto real:** como **DALL·E 3 se retiró de la API (12/05/2026)**, la solución usa
-#   **GPT Image** o, sin costo, **Nightcafe**, sin cambiar el resto del flujo.
+# - **Adaptación al contexto real:** como **DALL·E 3 se retiró de la API (12/05/2026)**, la imagen se
+#   genera sin costo en **Nightcafe** a partir del prompt que produce la etapa de texto, sin cambiar el resto del flujo.
 #
 # **Próximos pasos:** afinar el few-shot con casos reales de Daruma, validar el realismo de las imágenes
 # con el criterio de los dueños, y medir el costo real por consulta con la facturación de la API.
